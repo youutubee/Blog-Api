@@ -66,6 +66,19 @@ func checkValidUser(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
+// Function to generate a refresh token
+func generateRefreshToken(username string) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"Username": username,
+		"exp":      time.Now().Add(24 * time.Hour * 7).Unix(), // 7 days
+	})
+	return token.SignedString(jwtKey)
+}
+
+func hashUserPassword(string password) string{
+	
+}
+
 // Controller function to create a new user if one dosent exists
 func CreateUser(w http.ResponseWriter, r *http.Request) {
 	var user model.User
@@ -85,9 +98,6 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 
 	// use brycpt to hash password here afterwards checking
 
-	// here we generate the refresh token
-	refreshToken, _ := generateRefreshToken(user.Name)
-	user.RefreshToken = refreshToken
 
 	_, err =collection.InsertOne(context.Background(), user)
 
@@ -98,17 +108,8 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(user)
 }
 
-// Function to generate a refresh token
-func generateRefreshToken(username string) (string, error) {
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"Username": username,
-		"exp":      time.Now().Add(24 * time.Hour * 7).Unix(), // 7 days
-	})
-	return token.SignedString(jwtKey)
-}
-
 // Controllerfunctions to insert the blog
-func insertOneBlog(w http.ResponseWriter, r *http.Request) {
+func InsertOneBlog(w http.ResponseWriter, r *http.Request) {
 	// 1-> need to verify if that user can insert (writing a middleware for it)
 	if !checkValidUser(w,r){
 		log.Fatal("User not restricted to write a blog")
@@ -125,5 +126,8 @@ func insertOneBlog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	json.NewEncoder(w).Encode(blog)
+}
+
+func LoginOneUser(w http.ResponseWriter , r *http.Request){
 
 }
