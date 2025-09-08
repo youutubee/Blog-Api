@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -60,11 +61,20 @@ func checkValidUser(w http.ResponseWriter, r *http.Request) bool {
 	})
 
 	if !tkn.Valid {
-		// Check refresh token and give a new one
+		
 	}
 
 	return true
 }
+// Function to generate an access (active) token
+func generateAccessToken(username string) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"Username": username,
+		"exp":      time.Now().Add(15 * time.Minute).Unix(), // expires in 15 minutes
+	})
+	return token.SignedString(jwtKey)
+}
+
 
 // Function to generate a refresh token
 func generateRefreshToken(username string) (string, error) {
@@ -73,10 +83,6 @@ func generateRefreshToken(username string) (string, error) {
 		"exp":      time.Now().Add(24 * time.Hour * 7).Unix(), // 7 days
 	})
 	return token.SignedString(jwtKey)
-}
-
-func hashUserPassword(string password) string{
-	
 }
 
 // Controller function to create a new user if one dosent exists
@@ -98,10 +104,9 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 
 	// use brycpt to hash password here afterwards checking
 
+	_, err = collection.InsertOne(context.Background(), user)
 
-	_, err =collection.InsertOne(context.Background(), user)
-
-	if err!=nil{
+	if err != nil {
 		log.Fatal("internal server error cant insert the user in db")
 	}
 
@@ -111,23 +116,74 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 // Controllerfunctions to insert the blog
 func InsertOneBlog(w http.ResponseWriter, r *http.Request) {
 	// 1-> need to verify if that user can insert (writing a middleware for it)
-	if !checkValidUser(w,r){
+	if !checkValidUser(w, r) {
 		log.Fatal("User not restricted to write a blog")
 	}
 	var blog model.Blog
-	err := json.NewDecoder(r.Body).Decode(blog)
-	if err!=nil{
+	err := json.NewDecoder(r.Body).Decode(&blog)
+	if err != nil {
 		http.Error(w, "Invalid blog data", http.StatusBadRequest)
-        return
+		return
 	}
-	_ , err = collection.InsertOne(context.Background(),blog)
-	if err!=nil{
-		http.Error(w,"Failed to insert the blog",http.StatusInternalServerError)
+	_, err = collection.InsertOne(context.Background(), blog)
+	if err != nil {
+		http.Error(w, "Failed to insert the blog", http.StatusInternalServerError)
 		return
 	}
 	json.NewEncoder(w).Encode(blog)
 }
 
-func LoginOneUser(w http.ResponseWriter , r *http.Request){
+func LoginOneUser(w http.ResponseWriter, r *http.Request) {
+	var user model.User
 
+	err := json.NewDecoder(r.Body).Decode(&user)
+	if err != nil {
+		http.Error(w, "Cannot decdoe the json error", http.StatusBadRequest)
+	}
+
+	var foundUser model.User
+
+	err = collection.FindOne(context.Background(), bson.M{"username": user.Name}).Decode(&foundUser)
+
+	if err == mongo.ErrNoDocuments{
+		http.Error(w,"User not found or password is not correct",http.StatusUnauthorized)
+	}
+
+	if err != nil{
+		http.Error(w,"Some other error",http.StatusInternalServerError)
+	}
+
+	// if we reached till here that means the user exists and we need to check the password now
+	if foundUser.Password != user.Password {
+		http.Error(w, "Invalid password", http.StatusUnauthorized)
+		return
+	}
+
+	// if reached here the username and password both are correct and now we need to create the refersh token and active token
+	accessToken , _ := generateAccessToken(user.Name)
+	refreshToken , _ := generateRefreshToken(user.Name)
+	
+	// Store the refresh token in the db
+	_, err = collection.UpdateOne(context.Background(),bson.M{"username":user.Name},bson.M{"$set":bson.M{"refresh_token":refreshToken}}) // we use set to set the value of the refresh token cos at the first time it could be empty
+	if err!=nil{
+		http.Error(w,"Cannot update or insert the refresh token in the db",http.StatusInternalServerError)
+		return
+	}
+
+	// Send tokens back to client
+	http.SetCookie(w, &http.Cookie{
+		Name:     "token", // access token
+		Value:    accessToken,
+		Expires:  time.Now().Add(15 * time.Minute),
+		HttpOnly: true,
+	})
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    refreshToken,
+		Expires:  time.Now().Add(24 * 7 * time.Hour),
+		HttpOnly: true,
+	})
+
+	json.NewEncoder(w).Encode(user)
 }
