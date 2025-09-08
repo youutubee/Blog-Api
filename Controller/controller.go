@@ -107,7 +107,23 @@ func generateRefreshToken(username string) (string, error) {
 	return token.SignedString(jwtKey)
 }
 
-// Helper functions to
-func insertOneBlog() {
+// Controllerfunctions to insert the blog
+func insertOneBlog(w http.ResponseWriter, r *http.Request) {
 	// 1-> need to verify if that user can insert (writing a middleware for it)
+	if !checkValidUser(w,r){
+		log.Fatal("User not restricted to write a blog")
+	}
+	var blog model.Blog
+	err := json.NewDecoder(r.Body).Decode(blog)
+	if err!=nil{
+		http.Error(w, "Invalid blog data", http.StatusBadRequest)
+        return
+	}
+	_ , err = collection.InsertOne(context.Background(),blog)
+	if err!=nil{
+		http.Error(w,"Failed to insert the blog",http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(blog)
+
 }
